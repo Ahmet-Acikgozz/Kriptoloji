@@ -15,6 +15,8 @@ namespace ClientApp
         public ClientForm()
         {
             InitializeComponent();
+            cmbEncryptionMethod.Items.AddRange(new[] { "Caesar", "Vigenere", "Substitution", "Affine" });
+            cmbEncryptionMethod.SelectedIndex = 0;
         }
 
         private void btnconnect_Click(object sender, EventArgs e)
@@ -28,12 +30,11 @@ namespace ClientApp
 
             try
             {
-                client = new TcpClient("127.0.0.1", port); // IP = local host yeterli
+                client = new TcpClient("127.0.0.1", port);
                 stream = client.GetStream();
                 writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
                 StreamReader reader = new StreamReader(stream, Encoding.UTF8);
 
-                // Servera IP ve port doðrulama gönder
                 writer.WriteLine($"IP|{inputIP}|PORT|{port}");
                 string response = reader.ReadLine();
                 if (response == "OK")
@@ -52,23 +53,34 @@ namespace ClientApp
 
         private void btnSendMessage_Click(object sender, EventArgs e)
         {
-            if (writer == null) { listBoxStatus.Items.Add("Baðlý deðil."); return; }
+            if (writer == null)
+            {
+                listBoxStatus.Items.Add("Baðlý deðil.");
+                return;
+            }
+
             string msg = txtMessage.Text.Trim();
+            string method = cmbEncryptionMethod.SelectedItem.ToString();
+
             if (!string.IsNullOrEmpty(msg))
             {
-                writer.WriteLine("MSG|" + msg);
-                listBoxStatus.Items.Add("Mesaj gönderildi.");
+                string encrypted = Encrypt(msg, method);
+                writer.WriteLine($"MSG|{method}|{encrypted}");
+                listBoxStatus.Items.Add($"Mesaj gönderildi ({method}): {encrypted}");
             }
         }
 
+        // --- DOSYA GÖNDERME ---
         private void btnSendImage_Click(object sender, EventArgs e)
         {
             SendFile("IMG");
         }
+
         private void btnSendVideo_Click(object sender, EventArgs e)
         {
             SendFile("VID");
         }
+
         private void btnSendAudio_Click(object sender, EventArgs e)
         {
             SendFile("AUD");
@@ -76,7 +88,12 @@ namespace ClientApp
 
         private void SendFile(string type)
         {
-            if (writer == null) { listBoxStatus.Items.Add("Baðlý deðil."); return; }
+            if (writer == null)
+            {
+                listBoxStatus.Items.Add("Baðlý deðil.");
+                return;
+            }
+
             using OpenFileDialog ofd = new OpenFileDialog();
             ofd.Filter = type switch
             {
@@ -94,6 +111,81 @@ namespace ClientApp
                 stream.Write(data, 0, data.Length);
                 listBoxStatus.Items.Add($"{type} gönderildi: {ofd.FileName}");
             }
+        }
+
+        // --- ÞÝFRELEME METODLARI ---
+        private string Encrypt(string text, string method)
+        {
+            return method switch
+            {
+                "Caesar" => CaesarEncrypt(text, 3),
+                "Vigenere" => VigenereEncrypt(text, "KEY"),
+                "Substitution" => SubstitutionEncrypt(text),
+                "Affine" => AffineEncrypt(text),
+                _ => text
+            };
+        }
+
+        private string CaesarEncrypt(string text, int shift)
+        {
+            StringBuilder sb = new StringBuilder();
+            foreach (char c in text)
+            {
+                if (char.IsLetter(c))
+                {
+                    char a = char.IsUpper(c) ? 'A' : 'a';
+                    sb.Append((char)(((c - a + shift) % 26) + a));
+                }
+                else sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        private string VigenereEncrypt(string text, string key)
+        {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (char.IsLetter(c))
+                {
+                    char k = key[i % key.Length];
+                    int shift = (char.ToUpper(k) - 'A');
+                    char a = char.IsUpper(c) ? 'A' : 'a';
+                    sb.Append((char)(((c - a + shift) % 26) + a));
+                }
+                else sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        private string SubstitutionEncrypt(string text)
+        {
+            string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+            string key = "QWERTYUIOPASDFGHJKLZXCVBNM";
+            StringBuilder sb = new StringBuilder();
+            foreach (char c in text.ToUpper())
+            {
+                int index = alphabet.IndexOf(c);
+                sb.Append(index >= 0 ? key[index] : c);
+            }
+            return sb.ToString();
+        }
+
+        private string AffineEncrypt(string text)
+        {
+            int a = 5, b = 8;
+            StringBuilder sb = new StringBuilder();
+            foreach (char c in text.ToUpper())
+            {
+                if (char.IsLetter(c))
+                {
+                    int x = c - 'A';
+                    sb.Append((char)(((a * x + b) % 26) + 'A'));
+                }
+                else sb.Append(c);
+            }
+            return sb.ToString();
         }
     }
 }

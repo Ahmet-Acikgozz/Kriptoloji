@@ -12,7 +12,7 @@ namespace ServerApp
     {
         private TcpListener listener;
         private int serverPort = 9000;
-        private string serverIP = "123.45.67.89"; // Random belirlediðin IP (client ile eþleþecek)
+        private string serverIP = "123.45.67.89";
 
         public ServerForm()
         {
@@ -57,39 +57,47 @@ namespace ServerApp
 
             try
             {
-                // Client doðrulama
-                string header = reader.ReadLine(); // Örn: "IP|123.45.67.89|PORT|9000"
+                string header = reader.ReadLine();
                 string[] parts = header.Split('|');
 
                 if (parts.Length == 4 && parts[1] == serverIP && parts[3] == serverPort.ToString())
                 {
                     Invoke((Action)(() => listBoxLog.Items.Add("Client doðrulandý ve baðlandý.")));
-                    writer.WriteLine("OK"); // Onay mesajý
+                    writer.WriteLine("OK");
 
-                    // Artýk mesaj ve dosya gönderebilir
                     while (true)
                     {
                         string msgHeader = reader.ReadLine();
+                        if (msgHeader == null) break;
+
                         if (msgHeader.StartsWith("MSG|"))
                         {
-                            string msg = msgHeader.Substring(4);
-                            Invoke((Action)(() => listBoxLog.Items.Add("Client: " + msg)));
+                            string[] msgParts = msgHeader.Split('|');
+                            if (msgParts.Length == 3)
+                            {
+                                string method = msgParts[1];
+                                string encrypted = msgParts[2];
+                                string decrypted = Decrypt(encrypted, method);
+                                Invoke((Action)(() => listBoxLog.Items.Add($"Client ({method}): {decrypted}")));
+                            }
                         }
                         else if (msgHeader.StartsWith("IMG|") || msgHeader.StartsWith("VID|") || msgHeader.StartsWith("AUD|"))
                         {
-                            string type = msgHeader.Split('|')[0];
-                            string filename = msgHeader.Split('|')[1];
+                            string[] parts2 = msgHeader.Split('|');
+                            string type = parts2[0];
+                            string filename = parts2[1];
+                            int length = int.Parse(parts2[2]);
 
-                            // Dosya boyutu ve verisi alýnýyor
-                            int length = int.Parse(msgHeader.Split('|')[2]);
                             byte[] data = new byte[length];
                             int read = 0;
                             while (read < length)
                             {
-                                read += stream.Read(data, read, length - read);
+                                int bytesRead = stream.Read(data, read, length - read);
+                                if (bytesRead == 0) break;
+                                read += bytesRead;
                             }
 
-                            string savePath = Path.Combine(Application.StartupPath, filename);
+                            string savePath = Path.Combine(Application.StartupPath, "Received_" + filename);
                             File.WriteAllBytes(savePath, data);
                             Invoke((Action)(() => listBoxLog.Items.Add($"{type} kaydedildi: {savePath}")));
                         }
@@ -97,7 +105,7 @@ namespace ServerApp
                 }
                 else
                 {
-                    Invoke((Action)(() => listBoxLog.Items.Add("Client doðrulama hatasý, baðlantý reddedildi.")));
+                    Invoke((Action)(() => listBoxLog.Items.Add("Client doðrulama hatasý.")));
                     client.Close();
                 }
             }
@@ -106,6 +114,82 @@ namespace ServerApp
                 client.Close();
                 Invoke((Action)(() => listBoxLog.Items.Add("Client baðlantýsý kapandý.")));
             }
+        }
+
+        // --- DECRYPT METODLARI ---
+        private string Decrypt(string text, string method)
+        {
+            return method switch
+            {
+                "Caesar" => CaesarDecrypt(text, 3),
+                "Vigenere" => VigenereDecrypt(text, "KEY"),
+                "Substitution" => SubstitutionDecrypt(text),
+                "Affine" => AffineDecrypt(text),
+                _ => text
+            };
+        }
+
+        private string CaesarDecrypt(string text, int shift)
+        {
+            StringBuilder sb = new StringBuilder();
+            foreach (char c in text)
+            {
+                if (char.IsLetter(c))
+                {
+                    char a = char.IsUpper(c) ? 'A' : 'a';
+                    sb.Append((char)(((c - a - shift + 26) % 26) + a));
+                }
+                else sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        private string VigenereDecrypt(string text, string key)
+        {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (char.IsLetter(c))
+                {
+                    char k = key[i % key.Length];
+                    int shift = (char.ToUpper(k) - 'A');
+                    char a = char.IsUpper(c) ? 'A' : 'a';
+                    sb.Append((char)(((c - a - shift + 26) % 26) + a));
+                }
+                else sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        private string SubstitutionDecrypt(string text)
+        {
+            string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+            string key = "QWERTYUIOPASDFGHJKLZXCVBNM";
+            StringBuilder sb = new StringBuilder();
+            foreach (char c in text.ToUpper())
+            {
+                int index = key.IndexOf(c);
+                sb.Append(index >= 0 ? alphabet[index] : c);
+            }
+            return sb.ToString();
+        }
+
+        private string AffineDecrypt(string text)
+        {
+            int a = 5, b = 8;
+            int a_inv = 21; // 5'in mod 26 tersidir
+            StringBuilder sb = new StringBuilder();
+            foreach (char c in text.ToUpper())
+            {
+                if (char.IsLetter(c))
+                {
+                    int y = c - 'A';
+                    sb.Append((char)(((a_inv * (y - b + 26)) % 26) + 'A'));
+                }
+                else sb.Append(c);
+            }
+            return sb.ToString();
         }
     }
 }
