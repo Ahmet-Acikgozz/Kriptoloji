@@ -3,150 +3,163 @@
     partial class ClientForm
     {
         private System.ComponentModel.IContainer components = null;
-        private System.Windows.Forms.Label lblIP;
+        private System.Windows.Forms.Label labelIP;
         private System.Windows.Forms.TextBox txtServerIP;
-        private System.Windows.Forms.Label lblPort;
+        private System.Windows.Forms.Label labelPort;
         private System.Windows.Forms.TextBox txtServerPort;
         private System.Windows.Forms.Button btnConnect;
+        private System.Windows.Forms.Button btnDisconnect;
         private System.Windows.Forms.TextBox txtMessage;
         private System.Windows.Forms.Button btnSendMessage;
-        private System.Windows.Forms.Button btnSendImage;
-        private System.Windows.Forms.Button btnSendVideo;
-        private System.Windows.Forms.Button btnSendAudio;
+        private System.Windows.Forms.Button btnSendFile;
         private System.Windows.Forms.ListBox listBoxStatus;
         private System.Windows.Forms.ComboBox cmbEncryptionMethod;
+        private System.Windows.Forms.Label lblKey;
+        private System.Windows.Forms.TextBox txtKey;
 
         private void InitializeComponent()
         {
-            lblIP = new Label();
+            labelIP = new Label();
             txtServerIP = new TextBox();
-            lblPort = new Label();
+            labelPort = new Label();
             txtServerPort = new TextBox();
             btnConnect = new Button();
+            btnDisconnect = new Button();
             txtMessage = new TextBox();
             btnSendMessage = new Button();
-            btnSendImage = new Button();
-            btnSendVideo = new Button();
-            btnSendAudio = new Button();
+            btnSendFile = new Button();
             listBoxStatus = new ListBox();
             cmbEncryptionMethod = new ComboBox();
+            lblKey = new Label();
+            txtKey = new TextBox();
             SuspendLayout();
-            // 
-            // lblIP
-            // 
-            lblIP.Location = new Point(10, 10);
-            lblIP.Name = "lblIP";
-            lblIP.Size = new Size(70, 20);
-            lblIP.TabIndex = 0;
-            lblIP.Text = "Server IP:";
-            // 
-            // txtServerIP
-            // 
-            txtServerIP.Location = new Point(90, 10);
+
+
+
+            labelIP.Location = new Point(12, 12);
+            labelIP.Name = "labelIP";
+            labelIP.Size = new Size(60, 20);
+            labelIP.TabIndex = 0;
+            labelIP.Text = "Server IP:";
+
+
+
+            txtServerIP.Location = new Point(78, 12);
             txtServerIP.Name = "txtServerIP";
-            txtServerIP.Size = new Size(120, 27);
+            txtServerIP.Size = new Size(140, 27);
             txtServerIP.TabIndex = 1;
-            txtServerIP.Text = "123.45.67.89";
-            // 
-            // lblPort
-            // 
-            lblPort.Location = new Point(220, 10);
-            lblPort.Name = "lblPort";
-            lblPort.Size = new Size(40, 20);
-            lblPort.TabIndex = 2;
-            lblPort.Text = "Port:";
-            // 
-            // txtServerPort
-            // 
-            txtServerPort.Location = new Point(260, 10);
+            txtServerIP.Text = "127.0.0.1";
+
+
+
+            labelPort.Location = new Point(230, 12);
+            labelPort.Name = "labelPort";
+            labelPort.Size = new Size(35, 20);
+            labelPort.TabIndex = 2;
+            labelPort.Text = "Port:";
+
+
+
+            txtServerPort.Location = new Point(265, 12);
             txtServerPort.Name = "txtServerPort";
-            txtServerPort.Size = new Size(60, 27);
+            txtServerPort.Size = new Size(70, 27);
             txtServerPort.TabIndex = 3;
             txtServerPort.Text = "9000";
-            // 
-            // btnConnect
-            // 
-            btnConnect.Location = new Point(330, 8);
+
+
+
+            btnConnect.Location = new Point(345, 10);
             btnConnect.Name = "btnConnect";
-            btnConnect.Size = new Size(80, 25);
+            btnConnect.Size = new Size(99, 26);
             btnConnect.TabIndex = 4;
-            btnConnect.Text = "Bağlan";
-            btnConnect.Click += btnconnect_Click;
-            // 
-            // txtMessage
-            // 
-            txtMessage.Location = new Point(10, 50);
+            btnConnect.Text = "Connect";
+            btnConnect.Click += btnConnect_Click;
+
+
+
+            btnDisconnect.Enabled = false;
+            btnDisconnect.Location = new Point(345, 42);
+            btnDisconnect.Name = "btnDisconnect";
+            btnDisconnect.Size = new Size(99, 26);
+            btnDisconnect.TabIndex = 5;
+            btnDisconnect.Text = "Disconnect";
+            btnDisconnect.Click += btnDisconnect_Click;
+
+
+
+            txtMessage.Location = new Point(12, 100);
+            txtMessage.Multiline = true;
             txtMessage.Name = "txtMessage";
-            txtMessage.Size = new Size(360, 27);
-            txtMessage.TabIndex = 5;
-            // 
-            // btnSendMessage
-            // 
-            btnSendMessage.Location = new Point(380, 48);
+            txtMessage.PlaceholderText = "Mesajınızı buraya giriniz";
+            txtMessage.Size = new Size(320, 60);
+            txtMessage.TabIndex = 9;
+
+
+
+            btnSendMessage.Location = new Point(340, 100);
             btnSendMessage.Name = "btnSendMessage";
-            btnSendMessage.Size = new Size(170, 25);
-            btnSendMessage.TabIndex = 6;
-            btnSendMessage.Text = "Mesaj Gönder";
+            btnSendMessage.Size = new Size(104, 30);
+            btnSendMessage.TabIndex = 10;
+            btnSendMessage.Text = "Send Msg";
             btnSendMessage.Click += btnSendMessage_Click;
-            // 
-            // btnSendImage
-            // 
-            btnSendImage.Location = new Point(10, 80);
-            btnSendImage.Name = "btnSendImage";
-            btnSendImage.Size = new Size(100, 25);
-            btnSendImage.TabIndex = 7;
-            btnSendImage.Text = "Resim Gönder";
-            btnSendImage.Click += btnSendImage_Click;
-            // 
-            // btnSendVideo
-            // 
-            btnSendVideo.Location = new Point(120, 80);
-            btnSendVideo.Name = "btnSendVideo";
-            btnSendVideo.Size = new Size(100, 25);
-            btnSendVideo.TabIndex = 8;
-            btnSendVideo.Text = "Video Gönder";
-            btnSendVideo.Click += btnSendVideo_Click;
-            // 
-            // btnSendAudio
-            // 
-            btnSendAudio.Location = new Point(230, 80);
-            btnSendAudio.Name = "btnSendAudio";
-            btnSendAudio.Size = new Size(100, 25);
-            btnSendAudio.TabIndex = 9;
-            btnSendAudio.Text = "Ses Gönder";
-            btnSendAudio.Click += btnSendAudio_Click;
-            // 
-            // listBoxStatus
-            // 
-            listBoxStatus.Location = new Point(10, 120);
+
+
+
+            btnSendFile.Location = new Point(340, 140);
+            btnSendFile.Name = "btnSendFile";
+            btnSendFile.Size = new Size(104, 30);
+            btnSendFile.TabIndex = 11;
+            btnSendFile.Text = "Send File";
+            btnSendFile.Click += btnSendFile_Click;
+
+
+
+            listBoxStatus.Location = new Point(12, 170);
             listBoxStatus.Name = "listBoxStatus";
-            listBoxStatus.Size = new Size(460, 284);
-            listBoxStatus.TabIndex = 11;
-            // 
-            // cmbEncryptionMethod
-            // 
-            cmbEncryptionMethod.Location = new Point(405, 86);
+            listBoxStatus.Size = new Size(413, 184);
+            listBoxStatus.TabIndex = 12;
+
+
+
+            cmbEncryptionMethod.DropDownStyle = ComboBoxStyle.DropDownList;
+            cmbEncryptionMethod.Location = new Point(12, 46);
             cmbEncryptionMethod.Name = "cmbEncryptionMethod";
-            cmbEncryptionMethod.Size = new Size(121, 28);
-            cmbEncryptionMethod.TabIndex = 10;
-            // 
-            // ClientForm
-            // 
-            ClientSize = new Size(649, 450);
-            Controls.Add(lblIP);
+            cmbEncryptionMethod.Size = new Size(200, 28);
+            cmbEncryptionMethod.TabIndex = 6;
+
+
+
+            lblKey.Location = new Point(220, 46);
+            lblKey.Name = "lblKey";
+            lblKey.Size = new Size(40, 23);
+            lblKey.TabIndex = 7;
+            lblKey.Text = "Key:";
+
+
+
+            txtKey.Location = new Point(260, 46);
+            txtKey.Name = "txtKey";
+            txtKey.Size = new Size(80, 27);
+            txtKey.TabIndex = 8;
+
+
+
+            ClientSize = new Size(466, 390);
+            Controls.Add(labelIP);
             Controls.Add(txtServerIP);
-            Controls.Add(lblPort);
+            Controls.Add(labelPort);
             Controls.Add(txtServerPort);
             Controls.Add(btnConnect);
+            Controls.Add(btnDisconnect);
+            Controls.Add(cmbEncryptionMethod);
+            Controls.Add(lblKey);
+            Controls.Add(txtKey);
             Controls.Add(txtMessage);
             Controls.Add(btnSendMessage);
-            Controls.Add(btnSendImage);
-            Controls.Add(btnSendVideo);
-            Controls.Add(btnSendAudio);
-            Controls.Add(cmbEncryptionMethod);
+            Controls.Add(btnSendFile);
             Controls.Add(listBoxStatus);
             Name = "ClientForm";
-            Text = "File Transfer Client";
+            Text = "ClientForm";
             ResumeLayout(false);
             PerformLayout();
         }

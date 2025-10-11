@@ -9,183 +9,264 @@ namespace ClientApp
     public partial class ClientForm : Form
     {
         private TcpClient client;
-        private StreamWriter writer;
         private NetworkStream stream;
+        private StreamWriter writer;
+        private StreamReader reader;
 
         public ClientForm()
         {
             InitializeComponent();
-            cmbEncryptionMethod.Items.AddRange(new[] { "Caesar", "Vigenere", "Substitution", "Affine" });
+
+            cmbEncryptionMethod.Items.Clear();
+            cmbEncryptionMethod.Items.AddRange(new object[] { "Caesar Cipher", "Vigenere Cipher", "Substitution Cipher", "Affine Cipher" });
             cmbEncryptionMethod.SelectedIndex = 0;
         }
 
-        private void btnconnect_Click(object sender, EventArgs e)
+        private void btnConnect_Click(object sender, EventArgs e)
         {
-            string inputIP = txtServerIP.Text.Trim();
+            string ip = txtServerIP.Text.Trim();
             if (!int.TryParse(txtServerPort.Text.Trim(), out int port))
             {
-                listBoxStatus.Items.Add("Hatalý port numarasý!");
+                MessageBox.Show("Geçerli port girin.");
                 return;
             }
 
             try
             {
-                client = new TcpClient("127.0.0.1", port);
+                client = new TcpClient();
+                client.Connect(ip, port);
                 stream = client.GetStream();
                 writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
-                StreamReader reader = new StreamReader(stream, Encoding.UTF8);
+                reader = new StreamReader(stream, Encoding.UTF8);
 
-                writer.WriteLine($"IP|{inputIP}|PORT|{port}");
-                string response = reader.ReadLine();
-                if (response == "OK")
-                    listBoxStatus.Items.Add("Baðlantý baþarýlý ve doðrulandý!");
+
+                writer.WriteLine($"IP|{txtServerIP.Text.Trim()}|PORT|{port}");
+
+                string resp = reader.ReadLine();
+                if (resp == "OK")
+                {
+                    listBoxStatus.Items.Add($"Baðlandý ve doðrulandý: {ip}:{port}");
+                    btnConnect.Enabled = false;
+                    btnDisconnect.Enabled = true;
+                }
                 else
                 {
-                    listBoxStatus.Items.Add("Server doðrulama hatasý, baðlantý reddedildi.");
-                    client.Close();
+                    listBoxStatus.Items.Add("Server doðrulama hatasý, baðlantý kapatýldý.");
+                    CloseConnection();
                 }
             }
             catch (Exception ex)
             {
                 listBoxStatus.Items.Add("Baðlantý hatasý: " + ex.Message);
+                CloseConnection();
             }
+        }
+
+        private void btnDisconnect_Click(object sender, EventArgs e)
+        {
+            CloseConnection();
+            listBoxStatus.Items.Add("Baðlantý kapatýldý.");
+            btnConnect.Enabled = true;
+            btnDisconnect.Enabled = false;
         }
 
         private void btnSendMessage_Click(object sender, EventArgs e)
         {
-            if (writer == null)
+            if (!EnsureConnected()) return;
+
+            string method = cmbEncryptionMethod.SelectedItem?.ToString() ?? "";
+            string key = txtKey.Text.Trim();
+            string plain = txtMessage.Text;
+
+            if (string.IsNullOrEmpty(method))
             {
-                listBoxStatus.Items.Add("Baðlý deðil.");
+                MessageBox.Show("Þifreleme metodu seçin.");
+                return;
+            }
+            if (string.IsNullOrEmpty(key))
+            {
+                MessageBox.Show("Key girin.");
                 return;
             }
 
-            string msg = txtMessage.Text.Trim();
-            string method = cmbEncryptionMethod.SelectedItem.ToString();
-
-            if (!string.IsNullOrEmpty(msg))
+            string encrypted;
+            try
             {
-                string encrypted = Encrypt(msg, method);
-                writer.WriteLine($"MSG|{method}|{encrypted}");
-                listBoxStatus.Items.Add($"Mesaj gönderildi ({method}): {encrypted}");
+                encrypted = EncryptMessage(plain, method, key);
             }
-        }
-
-        // --- DOSYA GÖNDERME ---
-        private void btnSendImage_Click(object sender, EventArgs e)
-        {
-            SendFile("IMG");
-        }
-
-        private void btnSendVideo_Click(object sender, EventArgs e)
-        {
-            SendFile("VID");
-        }
-
-        private void btnSendAudio_Click(object sender, EventArgs e)
-        {
-            SendFile("AUD");
-        }
-
-        private void SendFile(string type)
-        {
-            if (writer == null)
+            catch (Exception ex)
             {
-                listBoxStatus.Items.Add("Baðlý deðil.");
+                MessageBox.Show("Þifreleme hatasý: " + ex.Message);
                 return;
             }
+
+            string header = $"TEXT|{method}|{key}|{encrypted}";
+            try
+            {
+                writer.WriteLine(header);
+                listBoxStatus.Items.Add($"Gönderildi ({method}): {encrypted}");
+                txtMessage.Clear();
+            }
+            catch (Exception ex)
+            {
+                listBoxStatus.Items.Add("Gönderme hatasý: " + ex.Message);
+            }
+        }
+
+        private void btnSendFile_Click(object sender, EventArgs e)
+        {
+            if (!EnsureConnected()) return;
 
             using OpenFileDialog ofd = new OpenFileDialog();
-            ofd.Filter = type switch
-            {
-                "IMG" => "Resim Dosyalarý|*.jpg;*.jpeg;*.png;*.bmp;*.gif",
-                "VID" => "Video Dosyalarý|*.mp4;*.avi;*.mkv",
-                "AUD" => "Ses Dosyalarý|*.wav;*.mp3;*.aac",
-                _ => "Tüm Dosyalar|*.*"
-            };
+            ofd.Filter = "All Files|*.*";
+            if (ofd.ShowDialog() != DialogResult.OK) return;
 
-            if (ofd.ShowDialog() == DialogResult.OK)
+            string filePath = ofd.FileName;
+            byte[] data = File.ReadAllBytes(filePath);
+            string filename = Path.GetFileName(filePath);
+
+            string ext = Path.GetExtension(filename).ToLower();
+            string type = "FILE";
+            if (ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".bmp" || ext == ".gif") type = "IMG";
+            else if (ext == ".mp4" || ext == ".avi" || ext == ".mkv") type = "VID";
+            else if (ext == ".wav" || ext == ".mp3" || ext == ".aac") type = "AUD";
+
+            try
             {
-                byte[] data = File.ReadAllBytes(ofd.FileName);
-                string header = $"{type}|{Path.GetFileName(ofd.FileName)}|{data.Length}";
+                string header = $"{type}|{filename}|{data.Length}";
                 writer.WriteLine(header);
                 stream.Write(data, 0, data.Length);
-                listBoxStatus.Items.Add($"{type} gönderildi: {ofd.FileName}");
+                listBoxStatus.Items.Add($"{type} gönderildi: {filename} ({data.Length} bytes)");
+            }
+            catch (Exception ex)
+            {
+                listBoxStatus.Items.Add("Dosya gönderme hatasý: " + ex.Message);
             }
         }
 
-        // --- ÞÝFRELEME METODLARI ---
-        private string Encrypt(string text, string method)
+        private bool EnsureConnected()
         {
-            return method switch
+            if (client == null || !client.Connected)
             {
-                "Caesar" => CaesarEncrypt(text, 3),
-                "Vigenere" => VigenereEncrypt(text, "KEY"),
-                "Substitution" => SubstitutionEncrypt(text),
-                "Affine" => AffineEncrypt(text),
-                _ => text
-            };
+                MessageBox.Show("Önce baðlanýn.");
+                return false;
+            }
+            return true;
         }
 
-        private string CaesarEncrypt(string text, int shift)
+        private void CloseConnection()
         {
-            StringBuilder sb = new StringBuilder();
-            foreach (char c in text)
+            try { writer?.Close(); } catch { }
+            try { reader?.Close(); } catch { }
+            try { stream?.Close(); } catch { }
+            try { client?.Close(); } catch { }
+            writer = null;
+            reader = null;
+            stream = null;
+            client = null;
+        }
+
+        private string EncryptMessage(string text, string method, string key)
+        {
+            switch (method)
             {
-                if (char.IsLetter(c))
+                case "Caesar Cipher":
+                    if (!int.TryParse(key, out int shift)) throw new Exception("Caesar key (number) olmalý.");
+                    return Caesar.Encrypt(text, shift);
+                case "Vigenere Cipher":
+                    if (string.IsNullOrEmpty(key)) throw new Exception("Vigenere key boþ olamaz.");
+                    return Vigenere.Encrypt(text, key);
+                case "Substitution Cipher":
+                    if (key.Length != 26) throw new Exception("Substitution key 26 harf olmalý.");
+                    return Substitution.Encrypt(text, key);
+                case "Affine Cipher":
+                    string[] parts = key.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length != 2) throw new Exception("Affine key: a,b formatýnda olmalý.");
+                    if (!int.TryParse(parts[0], out int a)) throw new Exception("Affine a tam sayý olmalý.");
+                    if (!int.TryParse(parts[1], out int b)) throw new Exception("Affine b tam sayý olmalý.");
+                    return Affine.Encrypt(text, a, b);
+                default:
+                    throw new Exception("Bilinmeyen metod.");
+            }
+        }
+
+        private static class Caesar
+        {
+            public static string Encrypt(string input, int key)
+            {
+                StringBuilder sb = new StringBuilder();
+                foreach (char c in input)
                 {
-                    char a = char.IsUpper(c) ? 'A' : 'a';
-                    sb.Append((char)(((c - a + shift) % 26) + a));
+                    if (char.IsLetter(c))
+                    {
+                        char basec = char.IsUpper(c) ? 'A' : 'a';
+                        sb.Append((char)(((c - basec + key) % 26 + 26) % 26 + basec));
+                    }
+                    else sb.Append(c);
                 }
-                else sb.Append(c);
+                return sb.ToString();
             }
-            return sb.ToString();
         }
 
-        private string VigenereEncrypt(string text, string key)
+        private static class Vigenere
         {
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < text.Length; i++)
+            public static string Encrypt(string text, string key)
             {
-                char c = text[i];
-                if (char.IsLetter(c))
+                StringBuilder sb = new StringBuilder();
+                key = key.ToUpper();
+                int j = 0;
+                foreach (char c in text)
                 {
-                    char k = key[i % key.Length];
-                    int shift = (char.ToUpper(k) - 'A');
-                    char a = char.IsUpper(c) ? 'A' : 'a';
-                    sb.Append((char)(((c - a + shift) % 26) + a));
+                    if (char.IsLetter(c))
+                    {
+                        char basec = char.IsUpper(c) ? 'A' : 'a';
+                        int shift = key[j % key.Length] - 'A';
+                        sb.Append((char)(((c - basec + shift) % 26 + 26) % 26 + basec));
+                        j++;
+                    }
+                    else sb.Append(c);
                 }
-                else sb.Append(c);
+                return sb.ToString();
             }
-            return sb.ToString();
         }
 
-        private string SubstitutionEncrypt(string text)
+        private static class Substitution
         {
-            string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-            string key = "QWERTYUIOPASDFGHJKLZXCVBNM";
-            StringBuilder sb = new StringBuilder();
-            foreach (char c in text.ToUpper())
+            public static string Encrypt(string text, string key)
             {
-                int index = alphabet.IndexOf(c);
-                sb.Append(index >= 0 ? key[index] : c);
-            }
-            return sb.ToString();
-        }
-
-        private string AffineEncrypt(string text)
-        {
-            int a = 5, b = 8;
-            StringBuilder sb = new StringBuilder();
-            foreach (char c in text.ToUpper())
-            {
-                if (char.IsLetter(c))
+                string alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+                key = key.ToUpper();
+                StringBuilder sb = new StringBuilder();
+                foreach (char c in text.ToUpper())
                 {
-                    int x = c - 'A';
-                    sb.Append((char)(((a * x + b) % 26) + 'A'));
+                    if (char.IsLetter(c))
+                    {
+                        int idx = alpha.IndexOf(c);
+                        sb.Append(key[idx]);
+                    }
+                    else sb.Append(c);
                 }
-                else sb.Append(c);
+                return sb.ToString();
             }
-            return sb.ToString();
+        }
+
+        private static class Affine
+        {
+            public static string Encrypt(string text, int a, int b)
+            {
+                StringBuilder sb = new StringBuilder();
+                foreach (char c in text.ToUpper())
+                {
+                    if (char.IsLetter(c))
+                    {
+                        int x = c - 'A';
+                        int enc = (a * x + b) % 26;
+                        sb.Append((char)(enc + 'A'));
+                    }
+                    else sb.Append(c);
+                }
+                return sb.ToString();
+            }
         }
     }
 }
