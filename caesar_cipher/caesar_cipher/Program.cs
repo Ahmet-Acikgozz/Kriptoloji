@@ -17,7 +17,6 @@ class Program
         Console.WriteLine("Çözülmüş metin: " + decrypted);
     }
 
-    // Metni şifreleyen fonksiyon
     static string CaesarEncrypt(string input, int shift)
     {
         char[] result = new char[input.Length];
@@ -35,16 +34,15 @@ class Program
             }
             else
             {
-                result[i] = c; // harf olmayan karakterler olduğu gibi kalır
+                result[i] = c; 
             }
         }
 
         return new string(result);
     }
 
-    // Şifrelenmiş metni çözen fonksiyon
     static string CaesarDecrypt(string input, int shift)
     {
-        return CaesarEncrypt(input, 26 - (shift % 26)); // ters kaydırma
+        return CaesarEncrypt(input, 26 - (shift % 26)); 
     }
 }
