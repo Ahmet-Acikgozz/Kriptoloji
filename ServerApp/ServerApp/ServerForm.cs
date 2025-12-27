@@ -1,4 +1,4 @@
-using System;
+ï»¿using System;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -6,21 +6,39 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using CryptoLib.AES;
+using CryptoLib.DES;
+using CryptoLib.RsaCrypto;
+using CryptoLib.HillCipher;
+using CryptoLib.ECC;
 
 namespace ServerApp
 {
     public partial class ServerForm : Form
     {
-        private TcpListener listener;
+        private TcpListener? listener;
         private bool serverRunning = false;
         private int serverPort = 9000;
         private string serverIP = "127.0.0.1";
+
+        private RsaLib? rsaServer;
+
+        private byte[]? clientAesKey;
+        private byte[]? clientDesKey;
+
+        private EccLib? eccServer;
+        private EccManual? eccManualServer;
 
         public ServerForm()
         {
             InitializeComponent();
             btnStopServer.Enabled = false;
             lblIPPort.Text = $"Server IP: {serverIP} | Port: {serverPort}";
+
+            rsaServer = new RsaLib(2048);
+
+            eccServer = new EccLib();
+            eccManualServer = new EccManual();
         }
 
         private void btnStartServer_Click(object sender, EventArgs e)
@@ -28,7 +46,7 @@ namespace ServerApp
             serverIP = txtIP.Text.Trim();
             if (!int.TryParse(txtPort.Text.Trim(), out serverPort))
             {
-                MessageBox.Show("Hatalý port!");
+                MessageBox.Show("Hatali port!");
                 return;
             }
             try
@@ -38,12 +56,13 @@ namespace ServerApp
                 serverRunning = true;
                 btnStartServer.Enabled = false;
                 btnStopServer.Enabled = true;
-                listBoxLog.Items.Add($"Server baþlatýldý: {serverPort}");
+                listBoxLog.Items.Add($"Server baslatildi: {serverPort}");
+                listBoxLog.Items.Add("RSA Key Pair olusturuldu.");
                 new Thread(AcceptLoop) { IsBackground = true }.Start();
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Server hatasý: " + ex.Message);
+                MessageBox.Show("Server hatasi: " + ex.Message);
             }
         }
 
@@ -62,7 +81,7 @@ namespace ServerApp
             {
                 while (serverRunning)
                 {
-                    if (listener.Pending())
+                    if (listener!.Pending())
                         ThreadPool.QueueUserWorkItem(HandleClient, listener.AcceptTcpClient());
                     else
                         Thread.Sleep(100);
@@ -71,20 +90,24 @@ namespace ServerApp
             catch (SocketException) { }
             catch (Exception ex)
             {
-                Invoke((Action)(() => listBoxLog.Items.Add("Loop Hatasý: " + ex.Message)));
+                Invoke((Action)(() => listBoxLog.Items.Add("Loop Hatasi: " + ex.Message)));
             }
         }
 
-        private void HandleClient(object obj)
+        private void HandleClient(object? obj)
         {
-            TcpClient client = obj as TcpClient;
+            TcpClient client = obj as TcpClient ?? throw new ArgumentNullException();
             using NetworkStream stream = client.GetStream();
             using StreamReader reader = new StreamReader(stream, Encoding.UTF8);
             using StreamWriter writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
 
+            byte[]? thisClientAesKey = null;
+            byte[]? thisClientDesKey = null;
+            string? thisClientEccPublicKey = null;
+
             try
             {
-                string first = reader.ReadLine();
+                string? first = reader.ReadLine();
                 if (string.IsNullOrEmpty(first)) { client.Close(); return; }
 
                 string[] fParts = first.Split('|');
@@ -93,27 +116,88 @@ namespace ServerApp
                     writer.WriteLine("DENIED"); client.Close(); return;
                 }
                 writer.WriteLine("OK");
-                Invoke((Action)(() => listBoxLog.Items.Add("Yeni client.")));
+                Invoke((Action)(() => listBoxLog.Items.Add("Yeni client baglandi.")));
 
-                string line;
+                writer.WriteLine($"RSAPUBKEY|{rsaServer!.GetPublicKeyXml()}");
+                Invoke((Action)(() => listBoxLog.Items.Add("RSA Public Key gonderildi.")));
+
+                writer.WriteLine($"ECCPUBKEY|{eccServer!.PublicKey}");
+                writer.WriteLine($"ECCMANUALPUBKEY|{eccManualServer!.GetPublicKeyBase64()}");
+                Invoke((Action)(() => listBoxLog.Items.Add("ECC Public Key gonderildi (Lib + Manual).")));
+
+                string? line;
                 while ((line = reader.ReadLine()) != null && serverRunning)
                 {
+                    if (line.StartsWith("AESKEY|"))
+                    {
+                        string encKey = line.Substring("AESKEY|".Length);
+                        thisClientAesKey = rsaServer.DecryptSymmetricKey(encKey);
+                        clientAesKey = thisClientAesKey;
+                        Invoke((Action)(() => listBoxLog.Items.Add("AES anahtari RSA ile cozuldu ve alindi.")));
+                        continue;
+                    }
+
+                    if (line.StartsWith("DESKEY|"))
+                    {
+                        string encKey = line.Substring("DESKEY|".Length);
+                        thisClientDesKey = rsaServer.DecryptSymmetricKey(encKey);
+                        clientDesKey = thisClientDesKey;
+                        Invoke((Action)(() => listBoxLog.Items.Add("DES anahtari RSA ile cozuldu ve alindi.")));
+                        continue;
+                    }
+
+                    if (line.StartsWith("ECCPUBKEY|"))
+                    {
+                        thisClientEccPublicKey = line.Substring("ECCPUBKEY|".Length);
+                        Invoke((Action)(() => listBoxLog.Items.Add("Client ECC Public Key alindi.")));
+                        continue;
+                    }
+
                     if (line.StartsWith("TEXT|"))
                     {
-                        string[] parts = line.Split('|', 4);
-                        if (parts.Length >= 4)
+                        string[] parts = line.Split('|', 5);
+                        if (parts.Length >= 5)
                         {
                             string method = parts[1];
-                            string key = parts[2];
-                            string encrypted = parts[3];
-                            string decrypted = DecryptMessage(encrypted, method, key);
+                            string modeTag = parts[2];
+                            string key = parts[3];
+                            string encrypted = parts[4];
+                            bool useManual = modeTag == "MANUAL";
+                            string decrypted = DecryptMessage(encrypted, method, key, useManual, thisClientAesKey, thisClientDesKey, thisClientEccPublicKey);
                             Invoke((Action)(() => {
-                                listBoxLog.Items.Add($"[{method}] Þifreli: {encrypted}");
-                                listBoxLog.Items.Add($"Çözülmüþ: {decrypted}");
+                                listBoxLog.Items.Add($"[{method}/{modeTag}] Sifreli: {encrypted.Substring(0, Math.Min(40, encrypted.Length))}...");
+                                listBoxLog.Items.Add($"Cozulmus: {decrypted}");
                             }));
                         }
                     }
-                    else if (line.Contains("|")) // Dosya/Resim
+                    else if (line.StartsWith("ENCFILE|"))
+                    {
+                        string[] parts = line.Split('|', 6);
+                        if (parts.Length >= 6)
+                        {
+                            string method = parts[1];
+                            string modeTag = parts[2];
+                            string key = parts[3];
+                            string filename = parts[4];
+                            string encrypted = parts[5];
+                            bool useManual = modeTag == "MANUAL";
+                            string decrypted = DecryptMessage(encrypted, method, key, useManual, thisClientAesKey, thisClientDesKey, thisClientEccPublicKey);
+
+                            string encryptedSavePath = Path.Combine(Application.StartupPath, filename + ".encrypted");
+                            File.WriteAllText(encryptedSavePath, encrypted, Encoding.UTF8);
+
+                            string decryptedSavePath = Path.Combine(Application.StartupPath, "Decrypted_" + filename);
+                            File.WriteAllText(decryptedSavePath, decrypted, Encoding.UTF8);
+
+                            Invoke((Action)(() => {
+                                listBoxLog.Items.Add($"=== Dosya Alindi: {filename} ({method}/{modeTag}) ===");
+                                listBoxLog.Items.Add($"  Sifreli   -> {Path.GetFileName(encryptedSavePath)} ({encrypted.Length} karakter)");
+                                listBoxLog.Items.Add($"  Cozulmus  -> {Path.GetFileName(decryptedSavePath)} ({decrypted.Length} karakter)");
+                                listBoxLog.Items.Add($"  Konum: {Application.StartupPath}");
+                            }));
+                        }
+                    }
+                    else if (line.Contains("|"))
                     {
                         string[] parts = line.Split('|', 3);
                         if (parts.Length >= 3)
@@ -132,7 +216,7 @@ namespace ServerApp
                                 }
                                 string path = Path.Combine(Application.StartupPath, "Rec_" + fn);
                                 File.WriteAllBytes(path, buff);
-                                Invoke((Action)(() => listBoxLog.Items.Add($"{type} alýndý: {fn}")));
+                                Invoke((Action)(() => listBoxLog.Items.Add($"{type} alindi: {fn}")));
                             }
                         }
                     }
@@ -142,7 +226,7 @@ namespace ServerApp
             finally { try { client.Close(); } catch { } }
         }
 
-        private string DecryptMessage(string text, string method, string key)
+        private string DecryptMessage(string text, string method, string key, bool useManual, byte[]? aesKey, byte[]? desKey, string? eccClientPublicKey)
         {
             try
             {
@@ -153,20 +237,67 @@ namespace ServerApp
                     "Substitution Cipher" => SubstitutionDecrypt(text, key),
                     "Affine Cipher" => AffineDecrypt(text, key),
                     "Rail Fence" => RailFenceDecrypt(text, int.Parse(key)),
-
-                    // --- YENÝ EKLENENLER ---
-                    "Route Cipher" => RouteCipher.Decrypt(text, int.Parse(key)),
-                    "Columnar Transposition" => ColumnarLogic.Decrypt(text, key),
-                    "Hill Cipher" => Hill.Decrypt(text, key),
-                    // -----------------------
-
+                    "Route Cipher" => RouteCipherDecrypt(text, int.Parse(key)),
+                    "Columnar Transposition" => ColumnarDecrypt(text, key),
+                    "Hill Cipher 2x2" => HillNxN.Decrypt2x2(text, key),
+                    "Hill Cipher 3x3" => HillNxN.Decrypt3x3(text, key),
+                    "Hill Cipher 4x4" => HillNxN.Decrypt4x4(text, key),
+                    "AES-128" => DecryptAes(text, aesKey, useManual),
+                    "DES" => DecryptDes(text, desKey, useManual),
+                    "RSA (Key Exchange)" => rsaServer!.DecryptString(text),
+                    "ECC (Key Exchange)" => DecryptEcc(text, eccClientPublicKey, useManual),
                     _ => "[Bilinmeyen Metod]"
                 };
             }
-            catch { return "[Decrypt Hatasý]"; }
+            catch (Exception ex) { return $"[Decrypt Hatasi: {ex.Message}]"; }
         }
 
-        // --- DECRYPT LOGIC ---
+        private string DecryptAes(string cipher, byte[]? aesKey, bool useManual)
+        {
+            if (aesKey == null) return "[AES Key yok!]";
+            if (useManual)
+                return AesManual.Decrypt(cipher, aesKey);
+            else
+                return AesLib.Decrypt(cipher, aesKey);
+        }
+
+        private string DecryptDes(string cipher, byte[]? desKey, bool useManual)
+        {
+            if (desKey == null) return "[DES Key yok!]";
+            if (useManual)
+                return DesManual.Decrypt(cipher, desKey);
+            else
+                return DesLib.Decrypt(cipher, desKey);
+        }
+
+        private string DecryptEcc(string cipher, string? clientEccPublicKey, bool useManual)
+        {
+            if (eccServer == null) return "[ECC Key yok!]";
+            if (string.IsNullOrEmpty(clientEccPublicKey)) return "[Client ECC Key yok!]";
+            
+            if (useManual)
+            {
+                if (eccManualServer == null) return "[Manuel ECC Key yok!]";
+                
+                try
+                {
+                    return eccManualServer.Decrypt(cipher);
+                }
+                catch (Exception ex)
+                {
+                    return $"[Manuel ECC Decrypt Hatasi: {ex.Message}]";
+                }
+            }
+            else
+            {
+                string[] parts = cipher.Split('|', 2);
+                if (parts.Length != 2) return "[Gecersiz ECC format!]";
+                string senderPubKey = parts[0];
+                string encryptedMessage = parts[1];
+                return EccHybridCrypto.DecryptWithKeyExchange(encryptedMessage, senderPubKey, eccServer);
+            }
+        }
+
 
         private string CaesarDecrypt(string input, int key)
         {
@@ -271,126 +402,55 @@ namespace ServerApp
             return sb.ToString();
         }
 
-        // --- YENÝ ROUTE CIPHER (Görseldeki Spiral - Decrypt) ---
-        private static class RouteCipher
+        private string RouteCipherDecrypt(string cipher, int cols)
         {
-            public static string Decrypt(string cipher, int cols)
+            int len = cipher.Length;
+            int rows = len / cols;
+            char[,] grid = new char[rows, cols];
+
+            int idx = 0;
+            int top = 0, bottom = rows - 1;
+            int left = 0, right = cols - 1;
+
+            while (top <= bottom && left <= right && idx < len)
             {
-                int len = cipher.Length;
-                int rows = len / cols;
-                char[,] grid = new char[rows, cols];
+                for (int i = top; i <= bottom && idx < len; i++) grid[i, right] = cipher[idx++];
+                right--; if (left > right) break;
+                for (int i = right; i >= left && idx < len; i--) grid[bottom, i] = cipher[idx++];
+                bottom--; if (top > bottom) break;
+                for (int i = bottom; i >= top && idx < len; i--) grid[i, left] = cipher[idx++];
+                left++; if (left > right) break;
+                for (int i = left; i <= right && idx < len; i++) grid[top, i] = cipher[idx++];
+                top++;
+            }
 
-                // Decrypt Mantýðý: Þifreli metni Spiral yola göre YERLEÞTÝR
-                int idx = 0;
-                int top = 0, bottom = rows - 1;
-                int left = 0, right = cols - 1;
+            StringBuilder sb = new StringBuilder();
+            for (int r = 0; r < rows; r++)
+                for (int c = 0; c < cols; c++)
+                    sb.Append(grid[r, c]);
 
-                while (top <= bottom && left <= right && idx < len)
-                {
-                    // Aþaðý
-                    for (int i = top; i <= bottom; i++) grid[i, right] = cipher[idx++];
-                    right--; if (left > right) break;
-                    // Sola
-                    for (int i = right; i >= left; i--) grid[bottom, i] = cipher[idx++];
-                    bottom--; if (top > bottom) break;
-                    // Yukarý
-                    for (int i = bottom; i >= top; i--) grid[i, left] = cipher[idx++];
-                    left++; if (left > right) break;
-                    // Saða
-                    for (int i = left; i <= right; i++) grid[top, i] = cipher[idx++];
-                    top++;
-                }
+            return sb.ToString().TrimEnd('X');
+        }
 
-                // Normal Oku
-                StringBuilder sb = new StringBuilder();
+        private string ColumnarDecrypt(string cipher, string key)
+        {
+            int cols = key.Length;
+            int rows = cipher.Length / cols;
+            char[,] grid = new char[rows, cols];
+            var sortedIndices = key.Select((c, ix) => new { c, ix }).OrderBy(x => x.c).Select(x => x.ix).ToArray();
+
+            int idx = 0;
+            for (int i = 0; i < cols; i++)
+            {
+                int k = sortedIndices[i];
                 for (int r = 0; r < rows; r++)
-                    for (int c = 0; c < cols; c++)
-                        sb.Append(grid[r, c]);
-
-                return sb.ToString().TrimEnd('X');
+                    if (idx < cipher.Length) grid[r, k] = cipher[idx++];
             }
+            StringBuilder sb = new StringBuilder();
+            for (int r = 0; r < rows; r++)
+                for (int c = 0; c < cols; c++) sb.Append(grid[r, c]);
+            return sb.ToString().TrimEnd('X');
         }
 
-        private static class ColumnarLogic
-        {
-            public static string Decrypt(string cipher, string key)
-            {
-                int cols = key.Length;
-                int rows = cipher.Length / cols;
-                char[,] grid = new char[rows, cols];
-                var sortedIndices = key.Select((c, ix) => new { c, ix }).OrderBy(x => x.c).Select(x => x.ix).ToArray();
-
-                int idx = 0;
-                for (int i = 0; i < cols; i++)
-                {
-                    int k = sortedIndices[i];
-                    for (int r = 0; r < rows; r++)
-                        if (idx < cipher.Length) grid[r, k] = cipher[idx++];
-                }
-                StringBuilder sb = new StringBuilder();
-                for (int r = 0; r < rows; r++)
-                    for (int c = 0; c < cols; c++) sb.Append(grid[r, c]);
-                return sb.ToString().TrimEnd('X');
-            }
-        }
-
-        // --- YENÝ HILL CIPHER (Decrypt - Matris Destekli) ---
-        private static class Hill
-        {
-            public static string Decrypt(string cipher, string keyString)
-            {
-                int[,] matrix = ParseKey(keyString);
-
-                // Determinant ve Tersini bul
-                int det = (matrix[0, 0] * matrix[1, 1] - matrix[0, 1] * matrix[1, 0]) % 26;
-                if (det < 0) det += 26;
-
-                int detInv = -1;
-                for (int i = 0; i < 26; i++) if ((det * i) % 26 == 1) { detInv = i; break; }
-                if (detInv == -1) return "[Hata: Matrisin tersi yok!]";
-
-                // Ters Matris (Inverse)
-                int[,] invMatrix = new int[2, 2];
-                invMatrix[0, 0] = (matrix[1, 1] * detInv) % 26;
-                invMatrix[0, 1] = (-matrix[0, 1] * detInv) % 26;
-                invMatrix[1, 0] = (-matrix[1, 0] * detInv) % 26;
-                invMatrix[1, 1] = (matrix[0, 0] * detInv) % 26;
-
-                for (int r = 0; r < 2; r++)
-                    for (int c = 0; c < 2; c++) if (invMatrix[r, c] < 0) invMatrix[r, c] += 26;
-
-                // Çözme Ýþlemi: P = K^-1 * C
-                StringBuilder sb = new StringBuilder();
-                for (int i = 0; i < cipher.Length; i += 2)
-                {
-                    int c1 = cipher[i] - 'A';
-                    int c2 = cipher[i + 1] - 'A';
-                    int p1 = (invMatrix[0, 0] * c1 + invMatrix[0, 1] * c2) % 26;
-                    int p2 = (invMatrix[1, 0] * c1 + invMatrix[1, 1] * c2) % 26;
-                    sb.Append((char)(p1 + 'A'));
-                    sb.Append((char)(p2 + 'A'));
-                }
-                return sb.ToString().TrimEnd('X');
-            }
-
-            private static int[,] ParseKey(string input)
-            {
-                int[,] m = new int[2, 2];
-                input = input.Trim();
-                if (char.IsDigit(input[0]))
-                {
-                    string[] parts = input.Split(new char[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries);
-                    m[0, 0] = int.Parse(parts[0]); m[0, 1] = int.Parse(parts[1]);
-                    m[1, 0] = int.Parse(parts[2]); m[1, 1] = int.Parse(parts[3]);
-                }
-                else
-                {
-                    input = input.ToUpper();
-                    m[0, 0] = input[0] - 'A'; m[0, 1] = input[1] - 'A';
-                    m[1, 0] = input[2] - 'A'; m[1, 1] = input[3] - 'A';
-                }
-                return m;
-            }
-        }
     }
 }

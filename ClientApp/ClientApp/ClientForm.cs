@@ -1,18 +1,34 @@
-using System;
+ï»¿using System;
 using System.IO;
 using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 using System.Windows.Forms;
+using CryptoLib.AES;
+using CryptoLib.DES;
+using CryptoLib.RsaCrypto;
+using CryptoLib.HillCipher;
+using CryptoLib.ECC;
 
 namespace ClientApp
 {
     public partial class ClientForm : Form
     {
-        private TcpClient client;
-        private NetworkStream stream;
-        private StreamWriter writer;
-        private StreamReader reader;
+        private TcpClient? client;
+        private NetworkStream? stream;
+        private StreamWriter? writer;
+        private StreamReader? reader;
+
+        private string? serverPublicKeyXml;
+
+        private byte[]? currentAesKey;
+        private byte[]? currentDesKey;
+
+        private bool useManualCrypto = false;
+
+        private EccLib? clientEcc;
+        private string? serverEccPublicKey;
+        private string? serverEccManualPublicKey;
 
         public ClientForm()
         {
@@ -25,11 +41,81 @@ namespace ClientApp
                 "Substitution Cipher",
                 "Affine Cipher",
                 "Rail Fence",
-                "Route Cipher",           // YENÝ (Spiral)
+                "Route Cipher",
                 "Columnar Transposition",
-                "Hill Cipher"             // GÜNCELLENDÝ (Matris destekli)
+                "Hill Cipher 2x2",
+                "Hill Cipher 3x3",
+                "Hill Cipher 4x4",
+                "AES-128",
+                "DES",
+                "RSA (Key Exchange)",
+                "ECC (Key Exchange)"
             });
             cmbEncryptionMethod.SelectedIndex = 0;
+            cmbEncryptionMethod.SelectedIndexChanged += CmbEncryptionMethod_SelectedIndexChanged;
+
+            chkManualMode.CheckedChanged += (s, e) => useManualCrypto = chkManualMode.Checked;
+            btnEncryptFile.Click += BtnEncryptFile_Click;
+        }
+
+        private void AddManualModeCheckbox()
+        {
+            if (this.Controls.Find("chkManualMode", false).Length == 0)
+            {
+                var chk = new CheckBox
+                {
+                    Name = "chkManualMode",
+                    Text = "Kutuphanesiz (Manuel)",
+                    Location = new System.Drawing.Point(12, 410),
+                    Size = new System.Drawing.Size(150, 23),
+                    Checked = false
+                };
+                chk.CheckedChanged += (s, e) => useManualCrypto = chk.Checked;
+                this.Controls.Add(chk);
+            }
+        }
+
+        private void AddFileEncryptButton()
+        {
+            if (this.Controls.Find("btnEncryptFile", false).Length == 0)
+            {
+                var btn = new Button
+                {
+                    Name = "btnEncryptFile",
+                    Text = "Dosya Sifrele",
+                    Location = new System.Drawing.Point(226, 146),
+                    Size = new System.Drawing.Size(95, 23)
+                };
+                btn.Click += BtnEncryptFile_Click;
+                this.Controls.Add(btn);
+            }
+        }
+
+        private void CmbEncryptionMethod_SelectedIndexChanged(object? sender, EventArgs e)
+        {
+            string method = cmbEncryptionMethod.SelectedItem?.ToString() ?? "";
+
+            if (method == "AES-128")
+            {
+                if (currentAesKey == null)
+                    currentAesKey = AesLib.GenerateKey();
+                txtKey.Text = Convert.ToBase64String(currentAesKey);
+            }
+            else if (method == "DES")
+            {
+                if (currentDesKey == null)
+                    currentDesKey = DesLib.GenerateKey();
+                txtKey.Text = Convert.ToBase64String(currentDesKey);
+            }
+            else if (method.Contains("Hill Cipher"))
+            {
+                if (method.Contains("2x2"))
+                    txtKey.Text = "3 5 6 7";
+                else if (method.Contains("3x3"))
+                    txtKey.Text = "17 17 5 21 18 21 2 2 19";
+                else if (method.Contains("4x4"))
+                    txtKey.Text = "7 11 4 5 3 2 9 13 1 8 6 12 10 15 14 16";
+            }
         }
 
         private void btnConnect_Click(object sender, EventArgs e)
@@ -37,7 +123,7 @@ namespace ClientApp
             string ip = txtServerIP.Text.Trim();
             if (!int.TryParse(txtServerPort.Text.Trim(), out int port))
             {
-                MessageBox.Show("Geçerli port girin.");
+                MessageBox.Show("Gecerli port girin.");
                 return;
             }
 
@@ -51,22 +137,57 @@ namespace ClientApp
 
                 writer.WriteLine($"IP|{txtServerIP.Text.Trim()}|PORT|{port}");
 
-                string resp = reader.ReadLine();
+                string? resp = reader.ReadLine();
                 if (resp == "OK")
                 {
-                    listBoxStatus.Items.Add($"Baðlandý ve doðrulandý: {ip}:{port}");
+                    listBoxStatus.Items.Add($"Baglandi ve dogrulandi: {ip}:{port}");
+
+                    string? rsaKey = reader.ReadLine();
+                    if (rsaKey != null && rsaKey.StartsWith("RSAPUBKEY|"))
+                    {
+                        serverPublicKeyXml = rsaKey.Substring("RSAPUBKEY|".Length);
+                        listBoxStatus.Items.Add("RSA Public Key alindi.");
+
+                        currentAesKey = AesLib.GenerateKey();
+                        currentDesKey = DesLib.GenerateKey();
+
+                        using var rsa = RsaLib.CreateFromPublicKeyXml(serverPublicKeyXml);
+                        string encAes = rsa.EncryptSymmetricKey(currentAesKey);
+                        string encDes = rsa.EncryptSymmetricKey(currentDesKey);
+
+                        writer.WriteLine($"AESKEY|{encAes}");
+                        writer.WriteLine($"DESKEY|{encDes}");
+                        listBoxStatus.Items.Add("AES ve DES anahtarlari RSA ile sifrelenerek gonderildi.");
+                    }
+
+                    string? eccKey = reader.ReadLine();
+                    if (eccKey != null && eccKey.StartsWith("ECCPUBKEY|"))
+                    {
+                        serverEccPublicKey = eccKey.Substring("ECCPUBKEY|".Length);
+                        clientEcc = new EccLib();
+                        writer.WriteLine($"ECCPUBKEY|{clientEcc.PublicKey}");
+                        listBoxStatus.Items.Add("ECC Public Key alindi ve gonderildi.");
+                    }
+                    
+                    string? eccManualKey = reader.ReadLine();
+                    if (eccManualKey != null && eccManualKey.StartsWith("ECCMANUALPUBKEY|"))
+                    {
+                        serverEccManualPublicKey = eccManualKey.Substring("ECCMANUALPUBKEY|".Length);
+                        listBoxStatus.Items.Add("Manuel ECC Public Key alindi.");
+                    }
+
                     btnConnect.Enabled = false;
                     btnDisconnect.Enabled = true;
                 }
                 else
                 {
-                    listBoxStatus.Items.Add("Server doðrulama hatasý.");
+                    listBoxStatus.Items.Add("Server dogrulama hatasi.");
                     CloseConnection();
                 }
             }
             catch (Exception ex)
             {
-                listBoxStatus.Items.Add("Baðlantý hatasý: " + ex.Message);
+                listBoxStatus.Items.Add("Baglanti hatasi: " + ex.Message);
                 CloseConnection();
             }
         }
@@ -74,7 +195,7 @@ namespace ClientApp
         private void btnDisconnect_Click(object sender, EventArgs e)
         {
             CloseConnection();
-            listBoxStatus.Items.Add("Baðlantý kapatýldý.");
+            listBoxStatus.Items.Add("Baglanti kapatildi.");
             btnConnect.Enabled = true;
             btnDisconnect.Enabled = false;
         }
@@ -87,9 +208,15 @@ namespace ClientApp
             string key = txtKey.Text.Trim();
             string plain = txtMessage.Text;
 
-            if (string.IsNullOrEmpty(method) || string.IsNullOrEmpty(key))
+            if (string.IsNullOrEmpty(method))
             {
-                MessageBox.Show("Metod ve Key alanlarýný doldurun.");
+                MessageBox.Show("Sifreleme yontemi secin.");
+                return;
+            }
+
+            if (method != "AES-128" && method != "DES" && method != "RSA (Key Exchange)" && method != "ECC (Key Exchange)" && string.IsNullOrEmpty(key))
+            {
+                MessageBox.Show("Key alanini doldurun.");
                 return;
             }
 
@@ -100,20 +227,100 @@ namespace ClientApp
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Þifreleme hatasý: " + ex.Message);
+                MessageBox.Show("Sifreleme hatasi: " + ex.Message);
                 return;
             }
 
-            string header = $"TEXT|{method}|{key}|{encrypted}";
+            string modeTag = useManualCrypto ? "MANUAL" : "LIB";
+            string header = $"TEXT|{method}|{modeTag}|{key}|{encrypted}";
             try
             {
-                writer.WriteLine(header);
-                listBoxStatus.Items.Add($"Gönderildi ({method}): {encrypted}");
+                writer!.WriteLine(header);
+                listBoxStatus.Items.Add($"Gonderildi ({method}/{modeTag}): {encrypted.Substring(0, Math.Min(50, encrypted.Length))}...");
                 txtMessage.Clear();
             }
             catch (Exception ex)
             {
-                listBoxStatus.Items.Add("Gönderme hatasý: " + ex.Message);
+                listBoxStatus.Items.Add("Gonderme hatasi: " + ex.Message);
+            }
+        }
+
+        private void BtnEncryptFile_Click(object? sender, EventArgs e)
+        {
+            if (!EnsureConnected()) return;
+
+            using OpenFileDialog ofd = new OpenFileDialog();
+            ofd.Filter = "Text Files|*.txt|All Files|*.*";
+            if (ofd.ShowDialog() != DialogResult.OK) return;
+
+            string filePath = ofd.FileName;
+            string fileContent;
+            try
+            {
+                fileContent = File.ReadAllText(filePath, Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Dosya okuma hatasi: " + ex.Message);
+                return;
+            }
+
+            string method = cmbEncryptionMethod.SelectedItem?.ToString() ?? "";
+            string key = txtKey.Text.Trim();
+
+            if (string.IsNullOrEmpty(method))
+            {
+                MessageBox.Show("Sifreleme yontemi secin.");
+                return;
+            }
+
+            string encrypted;
+            try
+            {
+                encrypted = EncryptMessage(fileContent, method, key);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Sifreleme hatasi: " + ex.Message);
+                return;
+            }
+
+            string encryptedFilePath = filePath + ".encrypted";
+            try
+            {
+                File.WriteAllText(encryptedFilePath, encrypted, Encoding.UTF8);
+                listBoxStatus.Items.Add($"Sifreli dosya kaydedildi: {Path.GetFileName(encryptedFilePath)}");
+                
+                MessageBox.Show(
+                    $"Sifreleme Dogrulama:\n\n" +
+                    $"Orijinal dosya: {Path.GetFileName(filePath)}\n" +
+                    $"Orijinal boyut: {fileContent.Length} karakter\n\n" +
+                    $"Sifreli dosya: {Path.GetFileName(encryptedFilePath)}\n" +
+                    $"Sifreli boyut: {encrypted.Length} karakter\n\n" +
+                    $"Yontem: {method}\n" +
+                    $"Mod: {(useManualCrypto ? "Manuel" : "Kutuphane")}\n\n" +
+                    $"Sifreli dosya konumu:\n{encryptedFilePath}",
+                    "Sifreleme Basarili",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                listBoxStatus.Items.Add($"Sifreli dosya kaydetilemedi: {ex.Message}");
+            }
+
+            string filename = Path.GetFileName(filePath);
+            string modeTag = useManualCrypto ? "MANUAL" : "LIB";
+
+            string header = $"ENCFILE|{method}|{modeTag}|{key}|{filename}|{encrypted}";
+            try
+            {
+                writer!.WriteLine(header);
+                listBoxStatus.Items.Add($"Dosya sifrelenerek gonderildi: {filename} ({method}/{modeTag})");
+            }
+            catch (Exception ex)
+            {
+                listBoxStatus.Items.Add("Dosya gonderme hatasi: " + ex.Message);
             }
         }
 
@@ -137,13 +344,13 @@ namespace ClientApp
 
             try
             {
-                writer.WriteLine($"{type}|{filename}|{data.Length}");
-                stream.Write(data, 0, data.Length);
-                listBoxStatus.Items.Add($"{type} gönderildi: {filename}");
+                writer!.WriteLine($"{type}|{filename}|{data.Length}");
+                stream!.Write(data, 0, data.Length);
+                listBoxStatus.Items.Add($"{type} gonderildi: {filename}");
             }
             catch (Exception ex)
             {
-                listBoxStatus.Items.Add("Dosya hatasý: " + ex.Message);
+                listBoxStatus.Items.Add("Dosya hatasi: " + ex.Message);
             }
         }
 
@@ -151,7 +358,7 @@ namespace ClientApp
         {
             if (client == null || !client.Connected)
             {
-                MessageBox.Show("Önce baðlanýn.");
+                MessageBox.Show("Once baglanin.");
                 return false;
             }
             return true;
@@ -170,39 +377,90 @@ namespace ClientApp
             switch (method)
             {
                 case "Caesar Cipher":
-                    if (!int.TryParse(key, out int shift)) throw new Exception("Caesar key sayý olmalý.");
+                    if (!int.TryParse(key, out int shift)) throw new Exception("Caesar key sayi olmali.");
                     return Caesar.Encrypt(text, shift);
+
                 case "Vigenere Cipher":
                     return Vigenere.Encrypt(text, key);
+
                 case "Substitution Cipher":
-                    if (key.Length != 26) throw new Exception("Substitution key 26 harf olmalý.");
+                    if (key.Length != 26) throw new Exception("Substitution key 26 harf olmali.");
                     return Substitution.Encrypt(text, key);
+
                 case "Affine Cipher":
                     string[] parts = key.Split(',');
-                    if (parts.Length != 2) throw new Exception("Affine key: a,b olmalý.");
+                    if (parts.Length != 2) throw new Exception("Affine key: a,b olmali.");
                     return Affine.Encrypt(text, int.Parse(parts[0]), int.Parse(parts[1]));
+
                 case "Rail Fence":
-                    if (!int.TryParse(key, out int rails)) throw new Exception("Rail Fence key sayý olmalý.");
+                    if (!int.TryParse(key, out int rails)) throw new Exception("Rail Fence key sayi olmali.");
                     return RailFence.Encrypt(text, rails);
 
-                // --- YENÝ EKLENENLER ---
                 case "Route Cipher":
-                    if (!int.TryParse(key, out int cols)) throw new Exception("Route Cipher key sütun sayýsý olmalý.");
+                    if (!int.TryParse(key, out int cols)) throw new Exception("Route Cipher key sutun sayisi olmali.");
                     return RouteCipher.Encrypt(text, cols);
 
                 case "Columnar Transposition":
                     return Columnar.Encrypt(text, key);
 
-                case "Hill Cipher":
-                    // Key artýk hem "GYBN" hem "6 24 1 13" olabilir
-                    return Hill.Encrypt(text, key);
-                // -----------------------
+                case "Hill Cipher 2x2":
+                    return HillNxN.Encrypt2x2(text, key);
 
-                default: throw new Exception("Bilinmeyen metod.");
+                case "Hill Cipher 3x3":
+                    return HillNxN.Encrypt3x3(text, key);
+
+                case "Hill Cipher 4x4":
+                    return HillNxN.Encrypt4x4(text, key);
+
+                case "AES-128":
+                    if (currentAesKey == null)
+                    {
+                        currentAesKey = Convert.FromBase64String(key);
+                    }
+                    if (useManualCrypto)
+                        return AesManual.Encrypt(text, currentAesKey);
+                    else
+                        return AesLib.Encrypt(text, currentAesKey);
+
+                case "DES":
+                    if (currentDesKey == null)
+                    {
+                        currentDesKey = Convert.FromBase64String(key);
+                    }
+                    if (useManualCrypto)
+                        return DesManual.Encrypt(text, currentDesKey);
+                    else
+                        return DesLib.Encrypt(text, currentDesKey);
+
+                case "RSA (Key Exchange)":
+                    if (serverPublicKeyXml == null)
+                        throw new Exception("Servera baglanin, RSA key alin.");
+                    using (var rsa = RsaLib.CreateFromPublicKeyXml(serverPublicKeyXml))
+                    {
+                        return rsa.EncryptString(text);
+                    }
+
+                case "ECC (Key Exchange)":
+                    if (serverEccPublicKey == null || clientEcc == null)
+                        throw new Exception("Servera baglanin, ECC key alin.");
+                    if (useManualCrypto)
+                    {
+                        if (serverEccManualPublicKey == null)
+                            throw new Exception("Server manuel ECC public key bulunamadi.");
+                        return EccManual.Encrypt(text, serverEccManualPublicKey);
+                    }
+                    else
+                    {
+                        var (encMsg, senderPubKey) = EccHybridCrypto.EncryptWithKeyExchange(text, serverEccPublicKey);
+                        return $"{senderPubKey}|{encMsg}";
+                    }
+
+                default:
+                    throw new Exception("Bilinmeyen metod.");
             }
         }
 
-        // --- ÞÝFRELEME SINIFLARI (Sadece Encrypt) ---
+        
 
         private static class Caesar
         {
@@ -296,7 +554,6 @@ namespace ClientApp
             }
         }
 
-        // --- YENÝ ROUTE CIPHER (Görseldeki Spiral - Encrypt) ---
         private static class RouteCipher
         {
             public static string Encrypt(string text, int cols)
@@ -307,36 +564,30 @@ namespace ClientApp
                 int totalCells = rows * cols;
                 text = text.PadRight(totalCells, 'X');
 
-                // 1. Grid'i normal doldur (Satýr satýr)
                 char[,] grid = new char[rows, cols];
                 int idx = 0;
                 for (int r = 0; r < rows; r++)
                     for (int c = 0; c < cols; c++)
                         grid[r, c] = text[idx++];
 
-                // 2. Spiral Oku (Sað-Üstten baþla, Saat yönü)
                 StringBuilder sb = new StringBuilder();
                 int top = 0, bottom = rows - 1;
                 int left = 0, right = cols - 1;
 
                 while (top <= bottom && left <= right)
                 {
-                    // Aþaðý (Sað sütun)
                     for (int i = top; i <= bottom; i++) sb.Append(grid[i, right]);
                     right--;
                     if (left > right) break;
 
-                    // Sola (Alt satýr)
                     for (int i = right; i >= left; i--) sb.Append(grid[bottom, i]);
                     bottom--;
                     if (top > bottom) break;
 
-                    // Yukarý (Sol sütun)
                     for (int i = bottom; i >= top; i--) sb.Append(grid[i, left]);
                     left++;
                     if (left > right) break;
 
-                    // Saða (Üst satýr)
                     for (int i = left; i <= right; i++) sb.Append(grid[top, i]);
                     top++;
                 }
@@ -362,9 +613,6 @@ namespace ClientApp
                 StringBuilder sb = new StringBuilder();
                 for (int i = 0; i < cols; i++)
                 {
-                    int k = Array.IndexOf(keyOrder, i);
-
-                    // Doðru mantýk: Anahtarýn alfabetik sýrasýna göre o harfin olduðu sütunu bulup okumalýyýz
                     var sortedIndices = key.Select((c, ix) => new { c, ix }).OrderBy(x => x.c).Select(x => x.ix).ToArray();
                     int targetCol = sortedIndices[i];
 
@@ -374,61 +622,6 @@ namespace ClientApp
             }
         }
 
-        // --- YENÝ HILL CIPHER (Encrypt - Matris Destekli) ---
-        private static class Hill
-        {
-            public static string Encrypt(string text, string keyString)
-            {
-                int[,] matrix = ParseKey(keyString);
-                CheckDeterminant(matrix);
-
-                text = text.Replace(" ", "").ToUpper();
-                if (text.Length % 2 != 0) text += "X";
-
-                StringBuilder sb = new StringBuilder();
-                for (int i = 0; i < text.Length; i += 2)
-                {
-                    int p1 = text[i] - 'A';
-                    int p2 = text[i + 1] - 'A';
-                    int c1 = (matrix[0, 0] * p1 + matrix[0, 1] * p2) % 26;
-                    int c2 = (matrix[1, 0] * p1 + matrix[1, 1] * p2) % 26;
-                    sb.Append((char)(c1 + 'A'));
-                    sb.Append((char)(c2 + 'A'));
-                }
-                return sb.ToString();
-            }
-
-            private static int[,] ParseKey(string input)
-            {
-                int[,] m = new int[2, 2];
-                input = input.Trim();
-                // Sayýsal giriþ: "6 24 1 13"
-                if (char.IsDigit(input[0]))
-                {
-                    string[] parts = input.Split(new char[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length != 4) throw new Exception("Hill Matrisi için 4 sayý gerekli.");
-                    m[0, 0] = int.Parse(parts[0]); m[0, 1] = int.Parse(parts[1]);
-                    m[1, 0] = int.Parse(parts[2]); m[1, 1] = int.Parse(parts[3]);
-                }
-                // Harf giriþ: "GYBN"
-                else
-                {
-                    if (input.Length != 4) throw new Exception("Hill Key harf ise 4 karakter olmalý.");
-                    input = input.ToUpper();
-                    m[0, 0] = input[0] - 'A'; m[0, 1] = input[1] - 'A';
-                    m[1, 0] = input[2] - 'A'; m[1, 1] = input[3] - 'A';
-                }
-                return m;
-            }
-
-            private static void CheckDeterminant(int[,] m)
-            {
-                int det = (m[0, 0] * m[1, 1] - m[0, 1] * m[1, 0]) % 26;
-                if (det < 0) det += 26;
-                // EBOB(det, 26) == 1 olmalý. (26 = 2*13)
-                if (det == 0 || det % 2 == 0 || det % 13 == 0)
-                    throw new Exception($"Matris Determinantý ({det}) geçersiz! 26 ile aralarýnda asal olmalý.");
-            }
-        }
+        
     }
 }
