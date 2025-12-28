@@ -155,33 +155,36 @@ namespace ServerApp
 
                     if (line.StartsWith("TEXT|"))
                     {
-                        string[] parts = line.Split('|', 5);
-                        if (parts.Length >= 5)
+                        string[] parts = line.Split('|', 6);
+                        if (parts.Length >= 6)
                         {
                             string method = parts[1];
-                            string modeTag = parts[2];
-                            string key = parts[3];
-                            string encrypted = parts[4];
+                            string keyExchange = parts[2];
+                            string modeTag = parts[3];
+                            string key = parts[4];
+                            string encrypted = parts[5];
                             bool useManual = modeTag == "MANUAL";
-                            string decrypted = DecryptMessage(encrypted, method, key, useManual, thisClientAesKey, thisClientDesKey, thisClientEccPublicKey);
+                            string decrypted = DecryptMessage(encrypted, method, key, useManual, keyExchange, thisClientAesKey, thisClientDesKey, thisClientEccPublicKey);
+                            string displayInfo = keyExchange != "Yok" ? $"{method}+{keyExchange}/{modeTag}" : $"{method}/{modeTag}";
                             Invoke((Action)(() => {
-                                listBoxLog.Items.Add($"[{method}/{modeTag}] Sifreli: {encrypted.Substring(0, Math.Min(40, encrypted.Length))}...");
+                                listBoxLog.Items.Add($"[{displayInfo}] Sifreli: {encrypted.Substring(0, Math.Min(40, encrypted.Length))}...");
                                 listBoxLog.Items.Add($"Cozulmus: {decrypted}");
                             }));
                         }
                     }
                     else if (line.StartsWith("ENCFILE|"))
                     {
-                        string[] parts = line.Split('|', 6);
-                        if (parts.Length >= 6)
+                        string[] parts = line.Split('|', 7);
+                        if (parts.Length >= 7)
                         {
                             string method = parts[1];
-                            string modeTag = parts[2];
-                            string key = parts[3];
-                            string filename = parts[4];
-                            string encrypted = parts[5];
+                            string keyExchange = parts[2];
+                            string modeTag = parts[3];
+                            string key = parts[4];
+                            string filename = parts[5];
+                            string encrypted = parts[6];
                             bool useManual = modeTag == "MANUAL";
-                            string decrypted = DecryptMessage(encrypted, method, key, useManual, thisClientAesKey, thisClientDesKey, thisClientEccPublicKey);
+                            string decrypted = DecryptMessage(encrypted, method, key, useManual, keyExchange, thisClientAesKey, thisClientDesKey, thisClientEccPublicKey);
 
                             string encryptedSavePath = Path.Combine(Application.StartupPath, filename + ".encrypted");
                             File.WriteAllText(encryptedSavePath, encrypted, Encoding.UTF8);
@@ -189,8 +192,9 @@ namespace ServerApp
                             string decryptedSavePath = Path.Combine(Application.StartupPath, "Decrypted_" + filename);
                             File.WriteAllText(decryptedSavePath, decrypted, Encoding.UTF8);
 
+                            string displayInfo = keyExchange != "Yok" ? $"{method}+{keyExchange}/{modeTag}" : $"{method}/{modeTag}";
                             Invoke((Action)(() => {
-                                listBoxLog.Items.Add($"=== Dosya Alindi: {filename} ({method}/{modeTag}) ===");
+                                listBoxLog.Items.Add($"=== Dosya Alindi: {filename} ({displayInfo}) ===");
                                 listBoxLog.Items.Add($"  Sifreli   -> {Path.GetFileName(encryptedSavePath)} ({encrypted.Length} karakter)");
                                 listBoxLog.Items.Add($"  Cozulmus  -> {Path.GetFileName(decryptedSavePath)} ({decrypted.Length} karakter)");
                                 listBoxLog.Items.Add($"  Konum: {Application.StartupPath}");
@@ -226,10 +230,15 @@ namespace ServerApp
             finally { try { client.Close(); } catch { } }
         }
 
-        private string DecryptMessage(string text, string method, string key, bool useManual, byte[]? aesKey, byte[]? desKey, string? eccClientPublicKey)
+        private string DecryptMessage(string text, string method, string key, bool useManual, string keyExchange, byte[]? aesKey, byte[]? desKey, string? eccClientPublicKey)
         {
             try
             {
+                if ((method == "AES-128" || method == "DES") && keyExchange == "ECC")
+                {
+                    return DecryptEcc(text, eccClientPublicKey, useManual);
+                }
+
                 return method switch
                 {
                     "Caesar Cipher" => CaesarDecrypt(text, int.Parse(key)),
@@ -244,8 +253,6 @@ namespace ServerApp
                     "Hill Cipher 4x4" => HillNxN.Decrypt4x4(text, key),
                     "AES-128" => DecryptAes(text, aesKey, useManual),
                     "DES" => DecryptDes(text, desKey, useManual),
-                    "RSA (Key Exchange)" => rsaServer!.DecryptString(text),
-                    "ECC (Key Exchange)" => DecryptEcc(text, eccClientPublicKey, useManual),
                     _ => "[Bilinmeyen Metod]"
                 };
             }

@@ -47,12 +47,17 @@ namespace ClientApp
                 "Hill Cipher 3x3",
                 "Hill Cipher 4x4",
                 "AES-128",
-                "DES",
-                "RSA (Key Exchange)",
-                "ECC (Key Exchange)"
+                "DES"
             });
             cmbEncryptionMethod.SelectedIndex = 0;
             cmbEncryptionMethod.SelectedIndexChanged += CmbEncryptionMethod_SelectedIndexChanged;
+
+            cmbKeyExchange.Items.Clear();
+            cmbKeyExchange.Items.AddRange(new object[] {
+                "RSA",
+                "ECC"
+            });
+            cmbKeyExchange.SelectedIndex = 0;
 
             chkManualMode.CheckedChanged += (s, e) => useManualCrypto = chkManualMode.Checked;
             btnEncryptFile.Click += BtnEncryptFile_Click;
@@ -94,6 +99,10 @@ namespace ClientApp
         private void CmbEncryptionMethod_SelectedIndexChanged(object? sender, EventArgs e)
         {
             string method = cmbEncryptionMethod.SelectedItem?.ToString() ?? "";
+
+            bool isSymmetric = method == "AES-128" || method == "DES";
+            cmbKeyExchange.Enabled = isSymmetric;
+            lblKeyExchange.Enabled = isSymmetric;
 
             if (method == "AES-128")
             {
@@ -205,6 +214,7 @@ namespace ClientApp
             if (!EnsureConnected()) return;
 
             string method = cmbEncryptionMethod.SelectedItem?.ToString() ?? "";
+            string keyExchange = cmbKeyExchange.SelectedItem?.ToString() ?? "Yok";
             string key = txtKey.Text.Trim();
             string plain = txtMessage.Text;
 
@@ -214,7 +224,8 @@ namespace ClientApp
                 return;
             }
 
-            if (method != "AES-128" && method != "DES" && method != "RSA (Key Exchange)" && method != "ECC (Key Exchange)" && string.IsNullOrEmpty(key))
+            bool isSymmetric = method == "AES-128" || method == "DES";
+            if (!isSymmetric && string.IsNullOrEmpty(key))
             {
                 MessageBox.Show("Key alanini doldurun.");
                 return;
@@ -232,11 +243,13 @@ namespace ClientApp
             }
 
             string modeTag = useManualCrypto ? "MANUAL" : "LIB";
-            string header = $"TEXT|{method}|{modeTag}|{key}|{encrypted}";
+            string keyExchangeTag = isSymmetric ? keyExchange : "Yok";
+            string header = $"TEXT|{method}|{keyExchangeTag}|{modeTag}|{key}|{encrypted}";
             try
             {
                 writer!.WriteLine(header);
-                listBoxStatus.Items.Add($"Gonderildi ({method}/{modeTag}): {encrypted.Substring(0, Math.Min(50, encrypted.Length))}...");
+                string displayInfo = isSymmetric ? $"{method}+{keyExchange}/{modeTag}" : $"{method}/{modeTag}";
+                listBoxStatus.Items.Add($"Gonderildi ({displayInfo}): {encrypted.Substring(0, Math.Min(50, encrypted.Length))}...");
                 txtMessage.Clear();
             }
             catch (Exception ex)
@@ -311,12 +324,16 @@ namespace ClientApp
 
             string filename = Path.GetFileName(filePath);
             string modeTag = useManualCrypto ? "MANUAL" : "LIB";
+            string keyExchange = cmbKeyExchange.SelectedItem?.ToString() ?? "Yok";
+            bool isSymmetric = method == "AES-128" || method == "DES";
+            string keyExchangeTag = isSymmetric ? keyExchange : "Yok";
 
-            string header = $"ENCFILE|{method}|{modeTag}|{key}|{filename}|{encrypted}";
+            string header = $"ENCFILE|{method}|{keyExchangeTag}|{modeTag}|{key}|{filename}|{encrypted}";
             try
             {
                 writer!.WriteLine(header);
-                listBoxStatus.Items.Add($"Dosya sifrelenerek gonderildi: {filename} ({method}/{modeTag})");
+                string displayInfo = isSymmetric ? $"{method}+{keyExchange}/{modeTag}" : $"{method}/{modeTag}";
+                listBoxStatus.Items.Add($"Dosya sifrelenerek gonderildi: {filename} ({displayInfo})");
             }
             catch (Exception ex)
             {
@@ -374,6 +391,8 @@ namespace ClientApp
 
         private string EncryptMessage(string text, string method, string key)
         {
+            string keyExchange = cmbKeyExchange.SelectedItem?.ToString() ?? "RSA";
+
             switch (method)
             {
                 case "Caesar Cipher":
@@ -417,42 +436,57 @@ namespace ClientApp
                     {
                         currentAesKey = Convert.FromBase64String(key);
                     }
-                    if (useManualCrypto)
-                        return AesManual.Encrypt(text, currentAesKey);
+                    if (keyExchange == "ECC")
+                    {
+                        if (serverEccPublicKey == null)
+                            throw new Exception("Servera baglanin, ECC key alin.");
+                        if (useManualCrypto)
+                        {
+                            if (serverEccManualPublicKey == null)
+                                throw new Exception("Server manuel ECC public key bulunamadi.");
+                            return EccManual.Encrypt(text, serverEccManualPublicKey);
+                        }
+                        else
+                        {
+                            var (encMsg, senderPubKey) = EccHybridCrypto.EncryptWithKeyExchange(text, serverEccPublicKey);
+                            return $"{senderPubKey}|{encMsg}";
+                        }
+                    }
                     else
-                        return AesLib.Encrypt(text, currentAesKey);
+                    {
+                        if (useManualCrypto)
+                            return AesManual.Encrypt(text, currentAesKey);
+                        else
+                            return AesLib.Encrypt(text, currentAesKey);
+                    }
 
                 case "DES":
                     if (currentDesKey == null)
                     {
                         currentDesKey = Convert.FromBase64String(key);
                     }
-                    if (useManualCrypto)
-                        return DesManual.Encrypt(text, currentDesKey);
-                    else
-                        return DesLib.Encrypt(text, currentDesKey);
-
-                case "RSA (Key Exchange)":
-                    if (serverPublicKeyXml == null)
-                        throw new Exception("Servera baglanin, RSA key alin.");
-                    using (var rsa = RsaLib.CreateFromPublicKeyXml(serverPublicKeyXml))
+                    if (keyExchange == "ECC")
                     {
-                        return rsa.EncryptString(text);
-                    }
-
-                case "ECC (Key Exchange)":
-                    if (serverEccPublicKey == null || clientEcc == null)
-                        throw new Exception("Servera baglanin, ECC key alin.");
-                    if (useManualCrypto)
-                    {
-                        if (serverEccManualPublicKey == null)
-                            throw new Exception("Server manuel ECC public key bulunamadi.");
-                        return EccManual.Encrypt(text, serverEccManualPublicKey);
+                        if (serverEccPublicKey == null)
+                            throw new Exception("Servera baglanin, ECC key alin.");
+                        if (useManualCrypto)
+                        {
+                            if (serverEccManualPublicKey == null)
+                                throw new Exception("Server manuel ECC public key bulunamadi.");
+                            return EccManual.Encrypt(text, serverEccManualPublicKey);
+                        }
+                        else
+                        {
+                            var (encMsg, senderPubKey) = EccHybridCrypto.EncryptWithKeyExchange(text, serverEccPublicKey);
+                            return $"{senderPubKey}|{encMsg}";
+                        }
                     }
                     else
                     {
-                        var (encMsg, senderPubKey) = EccHybridCrypto.EncryptWithKeyExchange(text, serverEccPublicKey);
-                        return $"{senderPubKey}|{encMsg}";
+                        if (useManualCrypto)
+                            return DesManual.Encrypt(text, currentDesKey);
+                        else
+                            return DesLib.Encrypt(text, currentDesKey);
                     }
 
                 default:

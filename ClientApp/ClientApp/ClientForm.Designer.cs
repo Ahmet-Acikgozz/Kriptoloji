@@ -26,6 +26,8 @@
             this.btnSendMessage = new System.Windows.Forms.Button();
             this.btnSendFile = new System.Windows.Forms.Button();
             this.cmbEncryptionMethod = new System.Windows.Forms.ComboBox();
+            this.cmbKeyExchange = new System.Windows.Forms.ComboBox();
+            this.lblKeyExchange = new System.Windows.Forms.Label();
             this.txtKey = new System.Windows.Forms.TextBox();
             this.label1 = new System.Windows.Forms.Label();
             this.label2 = new System.Windows.Forms.Label();
@@ -125,15 +127,34 @@
             // 
             this.cmbEncryptionMethod.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this.cmbEncryptionMethod.FormattingEnabled = true;
-            this.cmbEncryptionMethod.Location = new System.Drawing.Point(60, 19);
+            this.cmbEncryptionMethod.Location = new System.Drawing.Point(60, 22);
             this.cmbEncryptionMethod.Name = "cmbEncryptionMethod";
-            this.cmbEncryptionMethod.Size = new System.Drawing.Size(150, 23);
+            this.cmbEncryptionMethod.Size = new System.Drawing.Size(145, 23);
             this.cmbEncryptionMethod.TabIndex = 8;
+            // 
+            // lblKeyExchange
+            // 
+            this.lblKeyExchange.AutoSize = true;
+            this.lblKeyExchange.Location = new System.Drawing.Point(10, 52);
+            this.lblKeyExchange.Name = "lblKeyExchange";
+            this.lblKeyExchange.Size = new System.Drawing.Size(80, 15);
+            this.lblKeyExchange.TabIndex = 18;
+            this.lblKeyExchange.Text = "Key Exchange:";
+            // 
+            // cmbKeyExchange
+            // 
+            this.cmbKeyExchange.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbKeyExchange.FormattingEnabled = true;
+            this.cmbKeyExchange.Location = new System.Drawing.Point(95, 49);
+            this.cmbKeyExchange.Name = "cmbKeyExchange";
+            this.cmbKeyExchange.Size = new System.Drawing.Size(110, 23);
+            this.cmbKeyExchange.TabIndex = 19;
+            this.cmbKeyExchange.Enabled = false;
             // 
             // label4
             // 
             this.label4.AutoSize = true;
-            this.label4.Location = new System.Drawing.Point(220, 22);
+            this.label4.Location = new System.Drawing.Point(215, 25);
             this.label4.Name = "label4";
             this.label4.Size = new System.Drawing.Size(55, 15);
             this.label4.TabIndex = 13;
@@ -141,15 +162,15 @@
             // 
             // txtKey
             // 
-            this.txtKey.Location = new System.Drawing.Point(280, 19);
+            this.txtKey.Location = new System.Drawing.Point(275, 22);
             this.txtKey.Name = "txtKey";
-            this.txtKey.Size = new System.Drawing.Size(176, 23);
+            this.txtKey.Size = new System.Drawing.Size(181, 23);
             this.txtKey.TabIndex = 9;
             // 
             // chkManualMode
             // 
             this.chkManualMode.AutoSize = true;
-            this.chkManualMode.Location = new System.Drawing.Point(60, 48);
+            this.chkManualMode.Location = new System.Drawing.Point(215, 51);
             this.chkManualMode.Name = "chkManualMode";
             this.chkManualMode.Size = new System.Drawing.Size(150, 19);
             this.chkManualMode.TabIndex = 15;
@@ -160,12 +181,14 @@
             // 
             this.groupBox2.Controls.Add(this.label3);
             this.groupBox2.Controls.Add(this.cmbEncryptionMethod);
+            this.groupBox2.Controls.Add(this.lblKeyExchange);
+            this.groupBox2.Controls.Add(this.cmbKeyExchange);
             this.groupBox2.Controls.Add(this.label4);
             this.groupBox2.Controls.Add(this.txtKey);
             this.groupBox2.Controls.Add(this.chkManualMode);
             this.groupBox2.Location = new System.Drawing.Point(12, 73);
             this.groupBox2.Name = "groupBox2";
-            this.groupBox2.Size = new System.Drawing.Size(470, 75);
+            this.groupBox2.Size = new System.Drawing.Size(470, 80);
             this.groupBox2.TabIndex = 15;
             this.groupBox2.TabStop = false;
             this.groupBox2.Text = "Sifreleme Ayarlari";
@@ -223,7 +246,7 @@
             this.groupBox3.Controls.Add(this.btnSendMessage);
             this.groupBox3.Controls.Add(this.btnSendFile);
             this.groupBox3.Controls.Add(this.btnEncryptFile);
-            this.groupBox3.Location = new System.Drawing.Point(12, 154);
+            this.groupBox3.Location = new System.Drawing.Point(12, 159);
             this.groupBox3.Name = "groupBox3";
             this.groupBox3.Size = new System.Drawing.Size(470, 135);
             this.groupBox3.TabIndex = 16;
@@ -234,7 +257,7 @@
             // 
             this.listBoxStatus.FormattingEnabled = true;
             this.listBoxStatus.ItemHeight = 15;
-            this.listBoxStatus.Location = new System.Drawing.Point(12, 295);
+            this.listBoxStatus.Location = new System.Drawing.Point(12, 300);
             this.listBoxStatus.Name = "listBoxStatus";
             this.listBoxStatus.Size = new System.Drawing.Size(470, 199);
             this.listBoxStatus.TabIndex = 4;
@@ -282,5 +305,7 @@
         private System.Windows.Forms.GroupBox groupBox1;
         private System.Windows.Forms.GroupBox groupBox2;
         private System.Windows.Forms.GroupBox groupBox3;
+        private System.Windows.Forms.ComboBox cmbKeyExchange;
+        private System.Windows.Forms.Label lblKeyExchange;
     }
 }
